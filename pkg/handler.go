@@ -14,7 +14,6 @@ import (
 	"github.com/jhump/protoreflect/dynamic/grpcdynamic"
 	"github.com/pkg/errors"
 	"github.com/vesperth/grpc-sidecar-lib/utils"
-	spb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -107,21 +106,24 @@ func newServiceHandler(serviceClientConn *grpc.ClientConn, method *desc.MethodDe
 }
 
 func handleInvokeError(c *gin.Context, err error) {
-	statusObj, ok := status.FromError(err)
+	st, ok := status.FromError(err)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"code": "Unsorted",
+			"code": "INTERNAL_ERROR",
 			"msg":  err.Error(),
 		})
 		return
 	}
-	type StatusMirror struct {
-		s *spb.Status
-	}
-	var statusMirror = utils.UnsafeCast[*status.Status, *StatusMirror](statusObj)
-	c.JSON(http.StatusInternalServerError, gin.H{
-		"code":    statusObj.Code().String(),
-		"msg":     statusObj.Message(),
-		"details": statusMirror.s.Details,
+
+	// 官方标准提取方式：自动完成 Any 解包
+	details := st.Details()
+
+	// 自动映射 HTTP 状态码 (401, 403, 404 等)
+	httpStatus := utils.GrpcCodeToHttpStatus(st.Code())
+
+	c.JSON(httpStatus, gin.H{
+		"code":    st.Code().String(),
+		"message": st.Message(),
+		"details": details, // 这里的 details 已经是解包后的结构体数组
 	})
 }
